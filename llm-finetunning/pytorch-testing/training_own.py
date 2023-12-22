@@ -1,4 +1,15 @@
-def train_one_epoch(epoch_index, tb_writer, logging_frequency):
+import torch
+from datetime import datetime
+
+# PyTorch TensorBoard support
+from torch.utils.tensorboard import SummaryWriter
+from datetime import datetime
+
+# Initializing in a separate cell so we can easily add more epochs to the same run
+timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+sum_writer = SummaryWriter('runs/chest_trainer_{}'.format(timestamp))
+
+def train_one_epoch(model, training_loader, optimizer, loss_fn, accuracy_metric, cuda_device, epoch_index, logging_frequency):
   running_loss = 0.
   running_accuracy = 0.
   last_loss = 0.
@@ -9,8 +20,8 @@ def train_one_epoch(epoch_index, tb_writer, logging_frequency):
   for i, data in enumerate(training_loader):
   
     # Every data instance is an input + label pair
-    inputs = data['image'].to(device)
-    labels = data['label'].to(device)
+    inputs = data['image'].to(cuda_device)
+    labels = data['label'].to(cuda_device)
   
     # Zero your gradients for every batch!
     optimizer.zero_grad()
@@ -38,22 +49,33 @@ def train_one_epoch(epoch_index, tb_writer, logging_frequency):
       last_accuracy = running_accuracy / logging_frequency # accuracy per batch
       print('  batch {} loss: {} training_accuracy: {}'.format(i + 1, last_loss, last_accuracy))
       tb_x = epoch_index * len(training_loader) + i + 1
-      tb_writer.add_scalar('Loss/train', last_loss, tb_x)
+      sum_writer.add_scalar('Loss/train', last_loss, tb_x)
       running_loss = 0.
       running_accuracy = 0.
   
   return last_loss
 
 
-def train_many_epochs(epochs, writer, logging_frequency):
+def train_many_epochs(epochs, model, training_loader, validation_loader, optimizer, loss_fn, accuracy_metric, cuda_device, epoch_index, logging_frequency):
   best_vloss = 1_000_000.
+  timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
 
   for epoch_number in range(epochs):
     print('EPOCH {}:'.format(epoch_number + 1))
 
     # Make sure gradient tracking is on, and do a pass over the data
     model.train(True)
-    avg_loss = train_one_epoch(epoch_number, writer, logging_frequency)
+    avg_loss =  train_one_epoch(
+      model=model,
+      training_loader=training_loader,
+      optimizer=optimizer,
+      loss_fn=loss_fn,
+      accuracy_metric=accuracy_metric,
+      cuda_device=cuda_device,
+      epoch_index=epoch_index,
+      logging_frequency=logging_frequency
+    )
+   
 
     running_vloss = 0.0
     running_vacc = 0.0
@@ -65,8 +87,8 @@ def train_many_epochs(epochs, writer, logging_frequency):
     # Disable gradient computation and reduce memory consumption.
     with torch.no_grad():
       for i, vdata in enumerate(validation_loader):
-        vinputs = vdata['image'].to(device)
-        vlabels = vdata['label'].to(device)
+        vinputs = vdata['image'].to(cuda_device)
+        vlabels = vdata['label'].to(cuda_device)
         voutputs = model(vinputs)
         
         vloss = loss_fn(voutputs, vlabels)
@@ -81,12 +103,12 @@ def train_many_epochs(epochs, writer, logging_frequency):
 
     # Log the running loss averaged per batch
     # for both training and validation
-    writer.add_scalars(
+    sum_writer.add_scalars(
       'Training vs. Validation Loss',
       { 'Training' : avg_loss, 'Validation' : avg_vloss },
       epoch_number + 1
     )
-    writer.flush()
+    sum_writer.flush()
 
     # Track best performance, and save the model's state
     if avg_vloss < best_vloss:
