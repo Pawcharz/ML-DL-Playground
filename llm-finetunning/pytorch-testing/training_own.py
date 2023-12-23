@@ -127,3 +127,29 @@ def get_model_params(model):
       nn = nn*s
     pp += nn
   return pp
+
+def evaluate_model(model, testing_fragment):
+  model = model.to('cpu')
+  model.eval()
+
+  cum_error = 0
+
+  inputs = testing_fragment['image']
+  labels_true = testing_fragment['label']
+  
+  SET_SIZE = len(inputs)
+
+  for i in range(SET_SIZE):
+    input = inputs[i]
+    label_true = labels_true[i]
+    logits = model(input[None, ...]).detach().numpy()
+    label_pred = np.argmax(logits)
+    
+    cum_error += abs(label_pred - label_true)
+    print('index {}: true/predicted: {}/{}'.format(i, label_true, label_pred))
+    
+  error = cum_error / SET_SIZE
+
+  accuracy = 1 - error
+
+  print('testing accuracy: {}'.format(accuracy))
