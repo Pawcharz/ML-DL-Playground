@@ -117,3 +117,13 @@ def train_many_epochs(epochs, model, training_loader, validation_loader, optimiz
       torch.save(model.state_dict(), model_path)
 
     epoch_number += 1
+    
+
+def get_model_params(model):
+  pp=0
+  for p in list(model.parameters()):
+    nn=1
+    for s in list(p.size()):
+      nn = nn*s
+    pp += nn
+  return pp
