@@ -36,6 +36,7 @@ class CompositeModel(nn.Module):
       "google/vit-base-patch16-224",
       num_labels=1000
     )
+    
     if additional_layers == None:  
       self.additional_layers = nn.Sequential(
         nn.LayerNorm(1000),
@@ -47,10 +48,10 @@ class CompositeModel(nn.Module):
         nn.ReLU(),
         nn.Linear(64, 2)
       )
-      
-    self.additional_layers = additional_layers
+    else:
+      self.additional_layers = additional_layers
   
   def forward(self, x):
     x = self.pretrained(x).logits
-    x = self.my_new_layers(x)
+    x = self.additional_layers(x)
     return x
