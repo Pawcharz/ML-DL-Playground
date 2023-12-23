@@ -1,4 +1,5 @@
 import torch
+import numpy as np
 from datetime import datetime
 
 # PyTorch TensorBoard support
@@ -13,6 +14,8 @@ def train_one_epoch(model, training_loader, optimizer, loss_fn, accuracy_metric,
   running_loss = 0.
   running_accuracy = 0.
   last_loss = 0.
+  
+  model = model.to(cuda_device)
 
   # Here, we use enumerate(training_loader) instead of
   # iter(training_loader) so that we can track the batch
@@ -65,7 +68,7 @@ def train_many_epochs(epochs, model, training_loader, validation_loader, optimiz
 
     # Make sure gradient tracking is on, and do a pass over the data
     model.train(True)
-    avg_loss =  train_one_epoch(
+    avg_loss = train_one_epoch(
       model=model,
       training_loader=training_loader,
       optimizer=optimizer,
