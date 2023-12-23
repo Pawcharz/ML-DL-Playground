@@ -10,8 +10,9 @@ from datetime import datetime
 timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
 sum_writer = SummaryWriter('runs/chest_trainer_{}'.format(timestamp))
 
-def train_one_epoch(model, training_loader, optimizer, loss_fn, accuracy_metric, cuda_device, epoch_index, logging_frequency):
+def train_one_epoch(model, training_loader, validation_loader, optimizer, loss_fn, accuracy_metric, cuda_device, epoch_index, logging_frequency):
   running_loss = 0.
+  running_accuracy_all = 0.
   running_accuracy = 0.
   last_loss = 0.
   
@@ -44,19 +45,28 @@ def train_one_epoch(model, training_loader, optimizer, loss_fn, accuracy_metric,
     # Gather data and report
     running_loss += loss.item()
     running_accuracy += training_accuracy
-    
+    running_accuracy_all += training_accuracy
     # print('batch {}', i)
     
     if (i+1) % logging_frequency == 0:
       last_loss = running_loss / logging_frequency # loss per batch
       last_accuracy = running_accuracy / logging_frequency # accuracy per batch
-      print('  batch {} loss: {} training_accuracy: {}'.format(i + 1, last_loss, last_accuracy))
+      
+      avg_vloss, avg_vacc = evaluate_model2(
+        model=model,
+        validation_loader=validation_loader,
+        loss_fn=loss_fn,
+        accuracy_metric=accuracy_metric,
+        cuda_device=cuda_device
+      )
+      print(' batch {} loss: {} vloss: {} training_accuracy: {} validation accuracy {}'.format(i + 1, last_loss, avg_vloss, last_accuracy, avg_vacc))
       tb_x = epoch_index * len(training_loader) + i + 1
       sum_writer.add_scalar('Loss/train', last_loss, tb_x)
       running_loss = 0.
       running_accuracy = 0.
   
-  return last_loss
+  accuracy_all = running_accuracy_all / len(training_loader)
+  return last_loss, accuracy_all
 
 
 def train_many_epochs(epochs, model, training_loader, validation_loader, optimizer, loss_fn, accuracy_metric, cuda_device, epoch_index, logging_frequency):
@@ -68,9 +78,10 @@ def train_many_epochs(epochs, model, training_loader, validation_loader, optimiz
 
     # Make sure gradient tracking is on, and do a pass over the data
     model.train(True)
-    avg_loss = train_one_epoch(
+    avg_loss, avg_acc = train_one_epoch(
       model=model,
       training_loader=training_loader,
+      validation_loader=validation_loader,
       optimizer=optimizer,
       loss_fn=loss_fn,
       accuracy_metric=accuracy_metric,
@@ -80,29 +91,14 @@ def train_many_epochs(epochs, model, training_loader, validation_loader, optimiz
     )
    
 
-    running_vloss = 0.0
-    running_vacc = 0.0
-    
-    # Set the model to evaluation mode, disabling dropout and using population
-    # statistics for batch normalization.
-    model.eval()
-    
-    # Disable gradient computation and reduce memory consumption.
-    with torch.no_grad():
-      for i, vdata in enumerate(validation_loader):
-        vinputs = vdata['image'].to(cuda_device)
-        vlabels = vdata['label'].to(cuda_device)
-        voutputs = model(vinputs)
-        
-        vloss = loss_fn(voutputs, vlabels)
-        running_vloss += vloss
-        
-        vacc = accuracy_metric(voutputs, vlabels)
-        running_vacc += vacc
-
-    avg_vloss = running_vloss / (i + 1)
-    avg_vacc = running_vacc / (i + 1)
-    print('LOSS train {} valid {} ACCURACY validation {}'.format(avg_loss, avg_vloss, avg_vacc))
+    avg_vloss, avg_vacc = evaluate_model2(
+      model=model,
+      validation_loader=validation_loader,
+      loss_fn=loss_fn,
+      accuracy_metric=accuracy_metric,
+      cuda_device=cuda_device
+    )
+    print('LOSS train {} valid {} ACCURACY train {} validation {}'.format(avg_loss, avg_vloss, avg_acc, avg_vacc))
 
     # Log the running loss averaged per batch
     # for both training and validation
@@ -131,7 +127,7 @@ def get_model_params(model):
     pp += nn
   return pp
 
-def evaluate_model(model, testing_fragment):
+def evaluate_model(model, testing_fragment, verbose = 0):
   model = model.to('cpu')
   model.eval()
 
@@ -149,10 +145,42 @@ def evaluate_model(model, testing_fragment):
     label_pred = np.argmax(logits)
     
     cum_error += abs(label_pred - label_true)
-    print('index {}: true/predicted: {}/{}'.format(i, label_true, label_pred))
+    
+    if verbose > 0:
+      print('index {}: true/predicted: {}/{}'.format(i, label_true, label_pred))
     
   error = cum_error / SET_SIZE
 
   accuracy = 1 - error
 
-  print('testing accuracy: {}'.format(accuracy))
+  if verbose > 1:
+    print('testing accuracy: {}'.format(accuracy))
+  
+  return accuracy
+
+
+def evaluate_model2(model, validation_loader, loss_fn, accuracy_metric, cuda_device):
+  running_vloss = 0.0
+  running_vacc = 0.0
+  
+  # Set the model to evaluation mode, disabling dropout and using population
+  # statistics for batch normalization.
+  model.eval()
+  
+  # Disable gradient computation and reduce memory consumption.
+  with torch.no_grad():
+    for i, vdata in enumerate(validation_loader):
+      vinputs = vdata['image'].to(cuda_device)
+      vlabels = vdata['label'].to(cuda_device)
+      voutputs = model(vinputs)
+      
+      vloss = loss_fn(voutputs, vlabels)
+      running_vloss += vloss
+      
+      vacc = accuracy_metric(voutputs, vlabels)
+      running_vacc += vacc
+
+  avg_vloss = running_vloss / (i + 1)
+  avg_vacc = running_vacc / (i + 1)
+  
+  return [avg_vloss, avg_vacc]
